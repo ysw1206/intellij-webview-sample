@@ -141,45 +141,46 @@ class WebViewTerminalPanel(private val project: Project) {
     }
     
     private fun handleCreateTerminal() {
-        logger.info("🚀 Creating PTY terminal...")
+        logger.info("🚀 Creating IntelliJ native terminal...")
         
         val success = terminalService.initializeTerminal()
         if (success) {
             isTerminalReady = true
             sendToWebView(mapOf(
                 "command" to "terminalReady",
-                "method" to "PTY (Pseudoterminal)",
-                "isPty" to true
+                "method" to "IntelliJ Native Terminal API",
+                "isNative" to true,
+                "supportsInteractivePrograms" to true
             ))
         } else {
             sendToWebView(mapOf(
                 "command" to "terminalError",
-                "error" to "Failed to create PTY terminal"
+                "error" to "Failed to create IntelliJ native terminal"
             ))
         }
     }
     
     private fun handleExecuteCommand(commandText: String) {
-        logger.info("▶️ Executing command via PTY: $commandText")
+        logger.info("▶️ Executing command via IntelliJ terminal: $commandText")
         
         if (!isTerminalReady) {
             terminalService.initializeTerminal()
             isTerminalReady = true
         }
         
-        // PTY 기반에서는 executeCommand 대신 handleInput 사용
-        terminalService.executeCommand(commandText) // 하위 호환성을 위해 유지
+        // IntelliJ 네이티브 터미널에서 명령어 실행
+        terminalService.executeCommand(commandText)
     }
     
     private fun handleUserInput(input: String) {
         logger.info("⌨️ User command input: $input")
-        // 명령어 형태로 입력된 경우 (엔터 포함)
-        terminalService.handleInput("$input\r")
+        // 명령어 형태로 입력된 경우
+        terminalService.handleInput(input)
     }
     
     private fun handleRawInput(input: String) {
         logger.info("⌨️ Raw user input: ${input.replace("\r", "\\r").replace("\n", "\\n")}")
-        // 원시 입력 그대로 전송 (키보드 입력 실시간 전달용)
+        // 원시 키보드 입력을 IntelliJ 터미널로 실시간 전송
         terminalService.handleInput(input)
     }
     
@@ -189,7 +190,7 @@ class WebViewTerminalPanel(private val project: Project) {
     }
     
     private fun handleTerminateTerminal() {
-        logger.info("🔄 Terminating PTY terminal...")
+        logger.info("🔄 Terminating IntelliJ native terminal...")
         
         terminalService.terminateTerminal()
         isTerminalReady = false
@@ -200,17 +201,17 @@ class WebViewTerminalPanel(private val project: Project) {
     }
     
     private fun handleKillProcess() {
-        logger.info("⚡ Sending Ctrl+C to PTY terminal...")
+        logger.info("⚡ Sending Ctrl+C to IntelliJ terminal...")
         terminalService.killCurrentProcess()
     }
     
     private fun handleClearTerminal() {
-        logger.info("🧹 Clearing PTY terminal...")
+        logger.info("🧹 Clearing IntelliJ terminal...")
         terminalService.clearTerminal()
     }
     
     private fun handleCheckTerminalStatus() {
-        logger.info("📊 Checking PTY terminal status...")
+        logger.info("📊 Checking IntelliJ terminal status...")
         
         val status = terminalService.getTerminalStatus()
         sendToWebView(mapOf(
@@ -219,8 +220,9 @@ class WebViewTerminalPanel(private val project: Project) {
             "isRunning" to (status["isRunning"] ?: false),
             "hasRunningProcess" to (status["hasRunningProcess"] ?: false),
             "currentDirectory" to (status["currentDirectory"] ?: ""),
-            "terminalSize" to (status["terminalSize"] ?: "80x24"),
-            "processId" to (status["processId"] ?: -1)
+            "terminalType" to (status["terminalType"] ?: "Unknown"),
+            "supportsInteractivePrograms" to (status["supportsInteractivePrograms"] ?: false),
+            "terminalWidget" to (status["terminalWidget"] ?: "none")
         ))
     }
     
@@ -363,13 +365,13 @@ class WebViewTerminalPanel(private val project: Project) {
     <h1>🚀 IntelliJ WebView Terminal</h1>
     
     <div class="intellij-mode">
-        <strong>🎯 IntelliJ + Process Handler 모드</strong><br>
-        VS Code Pseudoterminal과 동일한 기능을 IntelliJ에서 구현했습니다!
+        <strong>🎯 IntelliJ Native Terminal API 모드</strong><br>
+        VS Code의 terminal API와 동일한 방식으로 IDE 내장 터미널을 활용합니다!
     </div>
     
     <div class="card">
-        <h2>📟 Process Handler 제어</h2>
-        <p>IntelliJ의 ProcessHandler를 사용한 실제 쉘 프로세스 제어</p>
+        <h2>📟 IntelliJ Native Terminal 제어</h2>
+        <p>IntelliJ의 내장 터미널 API를 사용한 실제 터미널 기능 - vim, nano, htop 등 완벽 지원!</p>
         
         <div class="terminal-controls">
             <button onclick="createTerminal()">터미널 생성</button>
@@ -381,8 +383,8 @@ class WebViewTerminalPanel(private val project: Project) {
         </div>
         
         <div class="terminal-info" id="terminalInfo">
-            IntelliJ ProcessHandler를 사용하여 실제 쉘 프로세스를 생성합니다.<br/>
-            VS Code Pseudoterminal과 동일한 방식으로 동작합니다!
+            IntelliJ의 내장 터미널 API를 사용하여 실제 IDE 터미널을 제어합니다.<br/>
+            VS Code의 terminal API와 동일한 방식으로 동작합니다!
         </div>
     </div>
     
@@ -393,29 +395,29 @@ class WebViewTerminalPanel(private val project: Project) {
         </div>
     </div>
     
-    <div class="card">
+            <div class="card">
         <h2>🔧 빠른 명령어</h2>
-        <p>실제 쉘 세션에서 실행되므로 cd, export 등이 다음 명령어에도 유지됩니다!</p>
+        <p>IntelliJ 네이티브 터미널에서 실행되므로 모든 대화형 프로그램이 완벽하게 동작합니다!</p>
         <div class="button-group">
             <button onclick="executeCommand('ls -la')" class="cmd-btn">ls -la</button>
             <button onclick="executeCommand('pwd')" class="cmd-btn">pwd</button>
             <button onclick="executeCommand('whoami')" class="cmd-btn">whoami</button>
-            <button onclick="executeCommand('cd /tmp')" class="cmd-btn">cd /tmp</button>
-            <button onclick="executeCommand('pwd')" class="cmd-btn">pwd (다시)</button>
-            <button onclick="executeCommand('export TEST=hello')" class="cmd-btn">export TEST=hello</button>
-            <button onclick="executeCommand('echo ${'$'}TEST')" class="cmd-btn">echo ${'$'}TEST</button>
+            <button onclick="executeCommand('cd /tmp && pwd')" class="cmd-btn">cd /tmp</button>
+            <button onclick="executeCommand('export TEST=hello && echo ${'$'}TEST')" class="cmd-btn">환경변수 테스트</button>
             <button onclick="executeCommand('date')" class="cmd-btn">날짜</button>
             <button onclick="executeCommand('java -version')" class="cmd-btn">Java 버전</button>
-            <button onclick="executeCommand('gradle --version')" class="cmd-btn">Gradle 버전</button>
+            <button onclick="executeCommand('htop')" class="cmd-btn">htop (대화형)</button>
+            <button onclick="executeCommand('vim --version')" class="cmd-btn">vim 버전</button>
+            <button onclick="executeCommand('nano --version')" class="cmd-btn">nano 버전</button>
         </div>
         
         <div style="margin-top: 15px;">
-            <input id="customCommand" placeholder="사용자 정의 명령어 입력" onkeypress="handleCommandKey(event)">
+            <input id="customCommand" placeholder="사용자 정의 명령어 입력 (vim, nano 등 대화형 프로그램 지원!)" onkeypress="handleCommandKey(event)">
             <button onclick="executeCustomCommand()">실행</button>
         </div>
         
         <div style="margin-top: 10px;">
-            <small>💡 IntelliJ ProcessHandler + JCEF WebView로 구현된 터미널입니다!</small>
+            <small>💡 IntelliJ Native Terminal API + JCEF WebView로 구현된 터미널입니다!</small>
         </div>
     </div>
 
@@ -572,8 +574,9 @@ class WebViewTerminalPanel(private val project: Project) {
                     terminalReady = true;
                     updateStatus('활성', 'ready');
                     document.getElementById('terminalInfo').innerHTML = 
-                        '✅ IntelliJ ProcessHandler가 생성되었습니다! (' + data.method + ')<br/>' +
-                        'VS Code Pseudoterminal과 동일한 방식으로 동작합니다!';
+                        '✅ IntelliJ 네이티브 터미널이 생성되었습니다! (' + data.method + ')<br/>' +
+                        'VS Code terminal API와 동일한 방식으로 동작합니다!<br/>' +
+                        '🎯 vim, nano, htop 등 모든 대화형 프로그램을 완벽 지원합니다!';
                     break;
                     
                 case 'terminalError':

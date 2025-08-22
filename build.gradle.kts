@@ -22,13 +22,10 @@ dependencies {
 
 // Configure Gradle IntelliJ Plugin
 intellij {
-    version.set("2023.2.5")
+    version.set("2024.3") 
     type.set("IC") // Target IDE Platform
     
-    plugins.set(listOf(
-        "terminal",
-        "com.intellij.java"
-    ))
+    plugins.set(listOf("org.jetbrains.plugins.terminal"))
 }
 
 tasks {

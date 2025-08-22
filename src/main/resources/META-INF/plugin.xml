@@ -3,36 +3,15 @@
     <name>IntelliJ WebView Terminal Sample</name>
     <vendor email="test@example.com" url="https://example.com">Example Vendor</vendor>
 
-    <description><![CDATA[
-    IntelliJ IDEA plugin demonstrating webview with enhanced terminal capabilities.
-    This plugin provides:
-    - Custom terminal with process control
-    - WebView integration for terminal UI
-    - Real shell functionality with input/output control
-    - Similar to VS Code's pseudoterminal but for IntelliJ
-    ]]></description>
-
     <depends>com.intellij.modules.platform</depends>
     <depends>org.jetbrains.plugins.terminal</depends>
 
     <extensions defaultExtensionNs="com.intellij">
-        <toolWindow id="WebView Terminal" 
-                   secondary="true" 
-                   icon="AllIcons.Toolwindows.ToolWindowRun" 
-                   anchor="bottom" 
-                   factoryClass="com.example.intellijwebviewsample.WebViewTerminalToolWindowFactory"/>
-        
-        <projectService serviceImplementation="com.example.intellijwebviewsample.TerminalService"/>
+        <projectService serviceImplementation="com.example.intellijwebviewsample.TerminalProcessService"/>
+        <toolWindow id="WebView Terminal"
+                    anchor="bottom"
+                    canCloseContent="true"
+                    icon="AllIcons.Debugger.Console"
+                    factoryClass="com.example.intellijwebviewsample.TerminalToolWindowFactory"/>
     </extensions>
-
-    <actions>
-        <action id="OpenWebViewTerminal" 
-                class="com.example.intellijwebviewsample.OpenWebViewTerminalAction" 
-                text="Open WebView Terminal"
-                description="Open WebView Terminal with Process Control">
-            <add-to-group group-id="ToolsMenu" anchor="first"/>
-            <keyboard-shortcut keymap="$default" first-keystroke="ctrl shift T"/>
-        </action>
-    </actions>
-
 </idea-plugin>

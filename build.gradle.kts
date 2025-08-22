@@ -16,6 +16,8 @@ dependencies {
     implementation("com.fasterxml.jackson.core:jackson-core:2.15.2")
     implementation("com.fasterxml.jackson.core:jackson-databind:2.15.2")
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.15.2")
+    
+    // PTY 의존성 제거 - IntelliJ 내장 API만 사용
 }
 
 // Configure Gradle IntelliJ Plugin

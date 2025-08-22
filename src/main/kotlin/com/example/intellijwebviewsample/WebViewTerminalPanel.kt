@@ -74,6 +74,19 @@ class WebViewTerminalPanel(private val project: Project) {
                             handleUserInput(input)
                         }
                     }
+                    "rawInput" -> { // 새로운 타입: 원시 입력 (PTY용)
+                        val input = message["input"] as? String
+                        if (input != null) {
+                            handleRawInput(input)
+                        }
+                    }
+                    "resizeTerminal" -> { // 새로운 타입: 터미널 크기 조정
+                        val cols = message["cols"] as? Int
+                        val rows = message["rows"] as? Int
+                        if (cols != null && rows != null) {
+                            handleResizeTerminal(cols, rows)
+                        }
+                    }
                     "terminateTerminal" -> {
                         handleTerminateTerminal()
                     }
@@ -128,41 +141,55 @@ class WebViewTerminalPanel(private val project: Project) {
     }
     
     private fun handleCreateTerminal() {
-        logger.info("🚀 Creating terminal...")
+        logger.info("🚀 Creating PTY terminal...")
         
         val success = terminalService.initializeTerminal()
         if (success) {
             isTerminalReady = true
             sendToWebView(mapOf(
                 "command" to "terminalReady",
-                "method" to "IntelliJ Process Handler"
+                "method" to "PTY (Pseudoterminal)",
+                "isPty" to true
             ))
         } else {
             sendToWebView(mapOf(
                 "command" to "terminalError",
-                "error" to "Failed to create terminal"
+                "error" to "Failed to create PTY terminal"
             ))
         }
     }
     
     private fun handleExecuteCommand(commandText: String) {
-        logger.info("▶️ Executing command: $commandText")
+        logger.info("▶️ Executing command via PTY: $commandText")
         
         if (!isTerminalReady) {
             terminalService.initializeTerminal()
             isTerminalReady = true
         }
         
-        terminalService.executeCommand(commandText)
+        // PTY 기반에서는 executeCommand 대신 handleInput 사용
+        terminalService.executeCommand(commandText) // 하위 호환성을 위해 유지
     }
     
     private fun handleUserInput(input: String) {
-        logger.info("⌨️ User input: $input")
-        handleExecuteCommand(input)
+        logger.info("⌨️ User command input: $input")
+        // 명령어 형태로 입력된 경우 (엔터 포함)
+        terminalService.handleInput("$input\r")
+    }
+    
+    private fun handleRawInput(input: String) {
+        logger.info("⌨️ Raw user input: ${input.replace("\r", "\\r").replace("\n", "\\n")}")
+        // 원시 입력 그대로 전송 (키보드 입력 실시간 전달용)
+        terminalService.handleInput(input)
+    }
+    
+    private fun handleResizeTerminal(cols: Int, rows: Int) {
+        logger.info("📐 Resizing terminal to ${cols}x${rows}")
+        terminalService.resizeTerminal(cols, rows)
     }
     
     private fun handleTerminateTerminal() {
-        logger.info("🔄 Terminating terminal...")
+        logger.info("🔄 Terminating PTY terminal...")
         
         terminalService.terminateTerminal()
         isTerminalReady = false
@@ -173,28 +200,27 @@ class WebViewTerminalPanel(private val project: Project) {
     }
     
     private fun handleKillProcess() {
-        logger.info("⚡ Killing current process...")
+        logger.info("⚡ Sending Ctrl+C to PTY terminal...")
         terminalService.killCurrentProcess()
     }
     
     private fun handleClearTerminal() {
-        logger.info("🧹 Clearing terminal...")
+        logger.info("🧹 Clearing PTY terminal...")
         terminalService.clearTerminal()
-        
-        sendToWebView(mapOf(
-            "command" to "clearWebTerminal"
-        ))
     }
     
     private fun handleCheckTerminalStatus() {
-        logger.info("📊 Checking terminal status...")
+        logger.info("📊 Checking PTY terminal status...")
         
         val status = terminalService.getTerminalStatus()
         sendToWebView(mapOf(
             "command" to "terminalStatus",
             "isActive" to (status["isActive"] ?: false),
+            "isRunning" to (status["isRunning"] ?: false),
             "hasRunningProcess" to (status["hasRunningProcess"] ?: false),
-            "currentDirectory" to (status["currentDirectory"] ?: "")
+            "currentDirectory" to (status["currentDirectory"] ?: ""),
+            "terminalSize" to (status["terminalSize"] ?: "80x24"),
+            "processId" to (status["processId"] ?: -1)
         ))
     }
     
@@ -450,77 +476,14 @@ class WebViewTerminalPanel(private val project: Project) {
                 }
             });
             
-            // 사용자 입력 처리
+            // xterm.js 터미널에서 실시간 입력 처리 (WebViewTerminalPanel.kt의 getWebViewContent() 내부)
             term.onData(data => {
-                const code = data.charCodeAt(0);
-                
-                // Ctrl+C 처리 (프로세스 중단)
-                if (code === 3) { // Ctrl+C
-                    sendToKotlin({
-                        command: 'killProcess'
-                    });
-                    term.write('^C\\r\\n\$ ');
-                    currentLine = '';
-                    return;
-                }
-                
-                if (code === 13) { // Enter
-                    if (currentLine.trim()) {
-                        console.log('Sending user input:', currentLine.trim());
-                        
-                        // 명령어 실행
-                        commandHistory.push(currentLine.trim());
-                        historyIndex = commandHistory.length;
-                        
-                        term.write('\\r\\n');
-                        sendToKotlin({
-                            command: 'userInput',
-                            input: currentLine.trim()
-                        });
-                        currentLine = '';
-                    } else {
-                        term.write('\\r\\n\$ ');
-                    }
-                } else if (code === 127) { // Backspace
-                    if (currentLine.length > 0) {
-                        currentLine = currentLine.slice(0, -1);
-                        term.write('\\b \\b');
-                    }
-                } else if (code === 27) { // Escape sequences (화살표 키 등)
-                    if (data.length === 3) {
-                        if (data[2] === 'A') { // Up arrow
-                            if (historyIndex > 0) {
-                                term.write('\\r\$ ');
-                                term.write(' '.repeat(currentLine.length));
-                                term.write('\\r\$ ');
-                                
-                                historyIndex--;
-                                currentLine = commandHistory[historyIndex];
-                                term.write(currentLine);
-                            }
-                        } else if (data[2] === 'B') { // Down arrow
-                            if (historyIndex < commandHistory.length - 1) {
-                                term.write('\\r\$ ');
-                                term.write(' '.repeat(currentLine.length));
-                                term.write('\\r\$ ');
-                                
-                                historyIndex++;
-                                currentLine = commandHistory[historyIndex];
-                                term.write(currentLine);
-                            } else if (historyIndex === commandHistory.length - 1) {
-                                term.write('\\r\$ ');
-                                term.write(' '.repeat(currentLine.length));
-                                term.write('\\r\$ ');
-                                
-                                historyIndex = commandHistory.length;
-                                currentLine = '';
-                            }
-                        }
-                    }
-                } else if (code >= 32) { // 일반 문자
-                    currentLine += data;
-                    term.write(data);
-                }
+                // PTY에서는 모든 입력을 실시간으로 전송
+                console.log('Sending raw input to PTY:', data.charCodeAt(0));
+                sendToKotlin({
+                    command: 'rawInput',
+                    input: data
+                });
             });
             
             // 초기 프롬프트 표시

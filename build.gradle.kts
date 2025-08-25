@@ -8,10 +8,21 @@ version = "1.0-SNAPSHOT"
 
 repositories {
     mavenCentral()
+    maven("https://cache-redirector.jetbrains.com/intellij-dependencies")
+    maven("https://cache-redirector.jetbrains.com/www.jetbrains.com/intellij-repository/releases")
 }
 
 dependencies {
     implementation(kotlin("stdlib"))
+    // pty4j 의존성 (정확한 버전)
+    implementation("org.jetbrains.pty4j:pty4j:0.12.13")
+    // 또는 최신 버전 시도
+    implementation("org.jetbrains.pty4j:pty4j:0.12.10")
+    
+    // Jackson JSON 처리
+    implementation("com.fasterxml.jackson.core:jackson-core:2.15.2")
+    implementation("com.fasterxml.jackson.core:jackson-databind:2.15.2")
+    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.15.2")
 }
 
 intellij {

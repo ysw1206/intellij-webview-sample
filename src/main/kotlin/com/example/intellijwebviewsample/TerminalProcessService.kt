@@ -1,15 +1,16 @@
 package com.example.intellijwebviewsample
 
 import com.intellij.openapi.components.Service
-import com.intellij.openapi.components.Service.Level
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.SystemInfo
+import java.io.File
 import javax.swing.JComponent
 
 /**
- * 출력 형식이 개선된 테스트용 터미널 서비스
+ * PTY 준비된 터미널 서비스 (의존성 문제 해결 버전)
  */
-@Service(Level.PROJECT)
+@Service(Service.Level.PROJECT)
 class TerminalProcessService(private val project: Project) : com.intellij.openapi.Disposable {
     private val log = logger<TerminalProcessService>()
 
@@ -17,46 +18,50 @@ class TerminalProcessService(private val project: Project) : com.intellij.openap
     private var isRunning = false
     private var currentDirectory = System.getProperty("user.home")
 
+    // PTY 관련 변수들 (나중에 구현)
+    private var ptyProcess: Any? = null // 나중에 PtyProcess로 변경
+    private var outputThread: Thread? = null
+    private var errorThread: Thread? = null
+
     fun setBridge(b: TerminalOutputBridge) {
-        log.info("🔗 Bridge set: $b")
+        log.info("🔗 Bridge set for PTY-ready terminal")
         bridge = b
     }
 
-    fun getTerminalComponent(): JComponent? = null // WebView만 사용
+    fun getTerminalComponent(): JComponent? = null
 
     /**
-     * 테스트용 초기화
+     * 향상된 시뮬레이션 터미널 (PTY 준비됨)
      */
     fun initialize(workingDir: String? = System.getProperty("user.home")): Boolean {
-        log.info("🚀 Initializing terminal service with proper formatting...")
+        log.info("🚀 Starting PTY-ready terminal service...")
         
-        if (project.isDisposed) {
-            log.warn("❌ Project is disposed")
-            return false
-        }
+        if (project.isDisposed) return false
 
         try {
             currentDirectory = workingDir ?: System.getProperty("user.home")
             isRunning = true
             
-            // 초기화 메시지
-            bridge?.onInfo("Terminal service initialized with proper formatting")
-            bridge?.pushStdout("Welcome to terminal!\r\n")
-            bridge?.pushStdout("Working directory: $currentDirectory\r\n")
+            // 향상된 시뮬레이션
+            bridge?.onInfo("PTY-ready terminal service started")
+            bridge?.pushStdout("PTY-ready terminal initialized\r\n")
+            bridge?.pushStdout("Current directory: $currentDirectory\r\n")
             
-            log.info("✅ Terminal service initialized successfully")
+            log.info("✅ PTY-ready terminal service started")
             return true
             
-        } catch (t: Throwable) {
-            log.error("❌ Failed to initialize terminal", t)
-            bridge?.onError("Failed to initialize: ${t.message}")
+        } catch (e: Exception) {
+            log.error("❌ Failed to start PTY-ready terminal", e)
+            bridge?.onError("Failed to start: ${e.message}")
             return false
         }
     }
 
-    /** 명령어 실행 형식 개선 */
-    fun sendInput(text: String) {
-        log.info("📤 Input received: '${text.replace("\r", "\\r").replace("\n", "\\n")}'")
+    /**
+     * 향상된 명령어 처리
+     */
+    fun sendInput(input: String) {
+        log.info("📤 PTY-ready input: '${input.replace("\r", "\\r").replace("\n", "\\n")}'")
         
         if (!isRunning) {
             bridge?.onError("Terminal not running")
@@ -64,18 +69,16 @@ class TerminalProcessService(private val project: Project) : com.intellij.openap
         }
 
         try {
-            // 개행 문자 제거하고 명령어 추출
-            val command = text.replace("\r", "").replace("\n", "").trim()
+            val command = input.replace("\r", "").replace("\n", "").trim()
             
             if (command.isEmpty()) {
-                // 빈 명령어는 새 프롬프트만 표시
                 bridge?.pushStdout("$ ")
                 return
             }
             
-            log.info("📋 Executing command: '$command'")
+            log.info("📋 Processing enhanced command: '$command'")
             
-            // 명령어 실행 및 출력 (프롬프트는 출력하지 않음)
+            // 향상된 명령어 처리
             when {
                 command == "pwd" -> {
                     bridge?.pushStdout("$currentDirectory\r\n")
@@ -93,83 +96,93 @@ class TerminalProcessService(private val project: Project) : com.intellij.openap
                     bridge?.pushStdout("$message\r\n")
                 }
                 command == "ls" || command == "ls -la" -> {
-                    bridge?.pushStdout("total 8\r\n")
-                    bridge?.pushStdout("drwxr-xr-x  10 user  staff   320 Aug 25 10:58 .\r\n")
-                    bridge?.pushStdout("drwxr-xr-x   5 user  staff   160 Aug 25 10:00 ..\r\n")
-                    bridge?.pushStdout("-rw-r--r--   1 user  staff  1234 Aug 25 10:58 build.gradle.kts\r\n")
-                    bridge?.pushStdout("drwxr-xr-x   3 user  staff    96 Aug 25 10:00 src\r\n")
-                    bridge?.pushStdout("-rw-r--r--   1 user  staff   567 Aug 25 10:58 README.md\r\n")
-                }
-                command == "clear" -> {
-                    // clear는 WebView에서 처리되므로 아무것도 출력하지 않음
-                    return
+                    // 실제 디렉토리 읽기 시도
+                    try {
+                        val dir = File(currentDirectory)
+                        if (dir.exists() && dir.isDirectory) {
+                            val files = dir.listFiles() ?: emptyArray()
+                            bridge?.pushStdout("total ${files.size}\r\n")
+                            for (file in files.sortedBy { it.name }) {
+                                val type = if (file.isDirectory) "d" else "-"
+                                val permissions = "rwxr-xr-x"
+                                val size = if (file.isFile) file.length() else 0
+                                bridge?.pushStdout("${type}${permissions}  1 user  staff  ${size} ${file.name}\r\n")
+                            }
+                        } else {
+                            bridge?.pushStdout("total 0\r\n")
+                        }
+                    } catch (e: Exception) {
+                        bridge?.pushStderr("ls: cannot access '$currentDirectory': ${e.message}\r\n")
+                    }
                 }
                 command.startsWith("cd ") -> {
                     val newDir = command.substring(3).trim()
-                    when {
-                        newDir == "~" || newDir == "" -> {
-                            currentDirectory = System.getProperty("user.home")
-                        }
-                        newDir == ".." -> {
-                            val parent = java.io.File(currentDirectory).parent
-                            if (parent != null) {
-                                currentDirectory = parent
-                            }
-                        }
-                        newDir.startsWith("/") -> {
-                            currentDirectory = newDir
-                        }
-                        else -> {
-                            currentDirectory = "$currentDirectory/$newDir"
-                        }
+                    val targetDir = when {
+                        newDir == "~" || newDir == "" -> System.getProperty("user.home")
+                        newDir == ".." -> File(currentDirectory).parent ?: currentDirectory
+                        newDir.startsWith("/") -> newDir
+                        else -> "$currentDirectory${File.separator}$newDir"
                     }
-                    // cd 명령어는 출력 없음 (실제 bash처럼)
+                    
+                    if (File(targetDir).exists()) {
+                        currentDirectory = targetDir
+                    } else {
+                        bridge?.pushStderr("cd: no such file or directory: $newDir\r\n")
+                    }
+                }
+                command == "clear" -> {
+                    // WebView에서 처리
+                }
+                command == "help" -> {
+                    bridge?.pushStdout("PTY-Ready Terminal Commands:\r\n")
+                    bridge?.pushStdout("  pwd         - show current directory\r\n")
+                    bridge?.pushStdout("  whoami      - show current user\r\n")
+                    bridge?.pushStdout("  date        - show current date\r\n")
+                    bridge?.pushStdout("  ls [-la]    - list files (real directory)\r\n")
+                    bridge?.pushStdout("  cd <dir>    - change directory (real navigation)\r\n")
+                    bridge?.pushStdout("  echo <text> - print text\r\n")
+                    bridge?.pushStdout("  clear       - clear screen\r\n")
+                    bridge?.pushStdout("  help        - show this help\r\n")
+                    bridge?.pushStdout("  exit        - exit terminal\r\n")
+                    bridge?.pushStdout("\r\n")
+                    bridge?.pushStdout("🔧 Ready for PTY upgrade when dependencies are resolved.\r\n")
                 }
                 command == "exit" -> {
                     bridge?.pushStdout("logout\r\n")
                     kill()
                     return
                 }
-                command == "help" -> {
-                    bridge?.pushStdout("Available commands:\r\n")
-                    bridge?.pushStdout("  pwd         - show current directory\r\n")
-                    bridge?.pushStdout("  whoami      - show current user\r\n")
-                    bridge?.pushStdout("  date        - show current date\r\n")
-                    bridge?.pushStdout("  ls [-la]    - list files\r\n")
-                    bridge?.pushStdout("  echo <text> - print text\r\n")
-                    bridge?.pushStdout("  cd <dir>    - change directory\r\n")
-                    bridge?.pushStdout("  clear       - clear screen\r\n")
-                    bridge?.pushStdout("  help        - show this help\r\n")
-                    bridge?.pushStdout("  exit        - exit terminal\r\n")
-                }
                 else -> {
                     bridge?.pushStderr("bash: $command: command not found\r\n")
+                    bridge?.pushStdout("(PTY mode will support all commands)\r\n")
                 }
             }
             
-            // 명령어 실행 후 새 프롬프트 표시
             bridge?.pushStdout("$ ")
             
-        } catch (t: Throwable) {
-            log.error("❌ Failed to process input", t)
-            bridge?.onError("Failed to process input: ${t.message}")
+        } catch (e: Exception) {
+            log.error("❌ Failed to process command", e)
+            bridge?.onError("Command failed: ${e.message}")
             bridge?.pushStdout("$ ")
         }
     }
 
+    fun resizeTerminal(cols: Int, rows: Int) {
+        log.info("📐 Terminal resize requested: ${cols}x${rows} (PTY-ready)")
+        // PTY 구현 시 실제 resize 구현
+    }
+
     fun clear() {
-        // clear는 WebView에서 처리
+        // WebView에서 처리
     }
 
-    fun changeDirectory(path: String) {
-        sendInput("cd $path")
-    }
-
-    /** 테스트용 종료 */
     fun kill() {
-        log.info("🔄 Terminating terminal...")
+        log.info("🔄 Terminating PTY-ready terminal...")
         isRunning = false
-        bridge?.onInfo("Terminal terminated")
+        
+        // 나중에 PTY 정리 코드 추가
+        outputThread?.interrupt()
+        errorThread?.interrupt()
     }
 
     override fun dispose() {
@@ -179,7 +192,7 @@ class TerminalProcessService(private val project: Project) : com.intellij.openap
     fun status(): Map<String, Any> = mapOf(
         "running" to isRunning,
         "processAlive" to isRunning,
-        "mode" to "formatted-test",
+        "mode" to "pty-ready-simulation",
         "currentDirectory" to currentDirectory
     )
 }

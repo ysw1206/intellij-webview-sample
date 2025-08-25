@@ -119,15 +119,15 @@ class WebViewTerminalPanel(private val project: Project) {
     }
     
     private fun handleTerminalReady() {
-        logger.info("🚀 xterm.js terminal ready, initializing test terminal...")
+        logger.info("🚀 xterm.js terminal ready, initializing enhanced test terminal...")
         
-        sendToTerminal("write", "\u001b[33m🔄 테스트 터미널을 초기화하는 중...\u001b[0m\r\n")
+        sendToTerminal("write", "\u001b[33m🔄 향상된 테스트 터미널을 초기화하는 중...\u001b[0m\r\n")
         
         val success = terminalService.initialize(System.getProperty("user.home"))
         if (success) {
             isTerminalReady = true
-            sendToTerminal("write", "\u001b[32m🎯 테스트 터미널이 준비되었습니다!\u001b[0m\r\n")
-            sendToTerminal("write", "\u001b[36m명령어를 입력하거나 버튼을 클릭하세요!\u001b[0m\r\n")
+            sendToTerminal("write", "\u001b[32m🎯 향상된 테스트 터미널이 준비되었습니다!\u001b[0m\r\n")
+            sendToTerminal("write", "\u001b[36m명령어를 입력하세요! (help를 입력하면 사용 가능한 명령어를 볼 수 있습니다)\u001b[0m\r\n")
             sendToTerminal("write", "$ ")
         } else {
             sendToTerminal("write", "\u001b[31m❌ 터미널 초기화 실패\u001b[0m\r\n")
@@ -135,31 +135,29 @@ class WebViewTerminalPanel(private val project: Project) {
     }
     
     private fun handleUserInput(input: String) {
-        logger.info("⌨️ User input: ${input.replace("\r", "\\r").replace("\n", "\\n")}")
+        logger.info("⌨️ Raw user input: '${input}' (length: ${input.length}) (charCodes: ${input.map { it.code }})")
         
         if (!isTerminalReady) {
             sendToTerminal("write", "\u001b[31m터미널이 준비되지 않았습니다.\u001b[0m\r\n")
             return
         }
         
-        // 엔터 키 처리
-        if (input == "\r") {
-            terminalService.sendInput("\n")
-        } else {
-            terminalService.sendInput(input)
-        }
+        // 입력을 그대로 터미널 서비스로 전달 - 로깅 추가
+        logger.info("🔄 Sending to TerminalService: '$input'")
+        terminalService.sendInput(input)
     }
     
     private fun handleTestCommand(cmd: String) {
-        logger.info("🧪 Test command: $cmd")
+        logger.info("🧪 Test command (direct): $cmd")
         
         if (!isTerminalReady) {
             sendToTerminal("write", "\u001b[31m터미널이 준비되지 않았습니다.\u001b[0m\r\n")
             return
         }
         
-        sendToTerminal("write", "\u001b[33m[TEST] $cmd\u001b[0m\r\n")
-        terminalService.sendInput(cmd)
+        // 테스트 명령어는 직접 처리
+        logger.info("🔄 Sending test command to TerminalService: '$cmd'")
+        terminalService.sendInput(cmd + "\n")  // 개행 문자 추가
     }
     
     private fun handleClear() {
@@ -287,7 +285,7 @@ class WebViewTerminalPanel(private val project: Project) {
     <div id="terminal"></div>
     
     <div class="info">
-        💡 터미널에서 직접 입력하거나 위의 테스트 버튼을 클릭하세요.
+        💡 터미널에서 직접 입력하거나 위의 테스트 버튼을 클릭하세요. 엔터를 눌러야 명령어가 실행됩니다.
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.js"></script>
@@ -298,6 +296,7 @@ class WebViewTerminalPanel(private val project: Project) {
         
         let term;
         let fitAddon;
+        let currentLine = ''; // 현재 입력 중인 라인
         
         function updateStatus(message) {
             const statusEl = document.getElementById('status');
@@ -326,15 +325,11 @@ class WebViewTerminalPanel(private val project: Project) {
                     cols: 80
                 });
                 
-                // FitAddon 생성 - 수정된 부분
+                // FitAddon 생성
                 try {
-                    // 다양한 방식으로 FitAddon 접근 시도
                     if (window.FitAddon) {
                         fitAddon = new window.FitAddon.FitAddon();
-                    } else if (window.FitAddon && window.FitAddon.FitAddon) {
-                        fitAddon = new window.FitAddon.FitAddon();
                     } else {
-                        console.warn('FitAddon not available, using manual resize');
                         fitAddon = null;
                     }
                     
@@ -350,25 +345,41 @@ class WebViewTerminalPanel(private val project: Project) {
                 // DOM에 연결
                 term.open(document.getElementById('terminal'));
                 
-                // 수동 크기 조정 (FitAddon 실패 시)
                 if (fitAddon) {
                     fitAddon.fit();
                 } else {
-                    // 수동으로 터미널 크기 조정
                     const terminalEl = document.getElementById('terminal');
                     const rect = terminalEl.getBoundingClientRect();
-                    const cols = Math.floor(rect.width / 9); // 대략적인 문자 너비
-                    const rows = Math.floor(rect.height / 17); // 대략적인 문자 높이
+                    const cols = Math.floor(rect.width / 9);
+                    const rows = Math.floor(rect.height / 17);
                     term.resize(Math.max(80, cols), Math.max(25, rows));
                 }
                 
-                // 사용자 입력 처리
+                // 사용자 입력 처리 - 수정된 버전
                 term.onData((data) => {
-                    console.log('User input:', data, 'charCodes:', data.split('').map(c => c.charCodeAt(0)));
-                    sendToKotlin({
-                        command: 'userInput',
-                        input: data
-                    });
+                    console.log('*** RAW INPUT ***:', data, 'charCodes:', data.split('').map(c => c.charCodeAt(0)));
+                    
+                    // 특수 키 처리
+                    const charCode = data.charCodeAt(0);
+                    
+                    if (charCode === 13) { // Enter
+                        console.log('*** ENTER PRESSED ***, current line:', "'" + currentLine + "'");
+                        handleEnterKey();
+                    } else if (charCode === 127 || charCode === 8) { // Backspace/Delete
+                        handleBackspace();
+                    } else if (charCode === 3) { // Ctrl+C
+                        console.log('*** CTRL+C PRESSED ***');
+                        sendToKotlin({
+                            command: 'userInput',
+                            input: '\\u0003'  // Ctrl+C
+                        });
+                        currentLine = '';
+                        term.write('^C\\r\\n$ ');
+                    } else if (charCode >= 32 && charCode < 127) { // 일반 문자
+                        handleRegularChar(data);
+                    } else {
+                        console.log('*** IGNORED CHAR ***, code:', charCode);
+                    }
                 });
                 
                 // 초기 메시지
@@ -387,29 +398,59 @@ class WebViewTerminalPanel(private val project: Project) {
             } catch (e) {
                 console.error('Failed to initialize xterm.js:', e);
                 updateStatus('xterm.js 초기화 실패: ' + e.message);
-                
-                // 폴백: 기본 div 표시
-                document.getElementById('terminal').innerHTML = 
-                    '<div style="color: #ff6b6b; padding: 20px; background: #2c2c2c; border-radius: 4px;">' +
-                    '<h3>❌ xterm.js 초기화 실패</h3>' +
-                    '<p>에러: ' + e.message + '</p>' +
-                    '<p>기본 터미널 모드로 전환됩니다.</p>' +
-                    '<div id="fallback-output" style="background: #000; color: #0f0; padding: 10px; margin-top: 10px; border-radius: 4px; font-family: monospace;"></div>' +
-                    '</div>';
-                    
-                // 폴백 터미널 설정
                 setupFallbackTerminal();
             }
+        }
+        
+        function handleEnterKey() {
+            // 명령어 에코 (사용자가 입력한 명령어 표시)
+            term.write('\\r\\n');
+            
+            console.log('*** PROCESSING COMMAND ***: "' + currentLine + '"');
+            
+            if (currentLine.trim()) {
+                // 명령어를 Kotlin으로 전송 (개행 문자 없이)
+                const commandToSend = currentLine.trim();
+                console.log('*** SENDING TO KOTLIN ***: "' + commandToSend + '"');
+                
+                sendToKotlin({
+                    command: 'userInput',
+                    input: commandToSend
+                });
+            } else {
+                // 빈 라인인 경우 새 프롬프트만 표시
+                term.write('$ ');
+            }
+            
+            currentLine = '';
+        }
+        
+        function handleBackspace() {
+            if (currentLine.length > 0) {
+                currentLine = currentLine.slice(0, -1);
+                term.write('\\b \\b');
+                console.log('*** BACKSPACE, current line now: "' + currentLine + '"');
+            }
+        }
+        
+        function handleRegularChar(char) {
+            currentLine += char;
+            term.write(char); // 로컬 에코
+            console.log('*** CHAR ADDED: "' + char + '", current line: "' + currentLine + '"');
         }
         
         function setupFallbackTerminal() {
             console.log('Setting up fallback terminal...');
             updateStatus('폴백 터미널 설정 중...');
             
-            // 간단한 폴백 터미널
-            window.handleKotlinMessage = function(data) {
-                console.log('Fallback - Received from Kotlin:', data);
+            document.getElementById('terminal').innerHTML = 
+                '<div style="color: #ff6b6b; padding: 20px; background: #2c2c2c; border-radius: 4px;">' +
+                '<h3>❌ xterm.js 초기화 실패</h3>' +
+                '<p>기본 터미널 모드로 전환됩니다.</p>' +
+                '<div id="fallback-output" style="background: #000; color: #0f0; padding: 10px; margin-top: 10px; border-radius: 4px; font-family: monospace;"></div>' +
+                '</div>';
                 
+            window.handleKotlinMessage = function(data) {
                 const outputEl = document.getElementById('fallback-output');
                 if (outputEl && data.action === 'write') {
                     outputEl.innerHTML += data.data.replace(/\\n/g, '<br>').replace(/\\r/g, '');
@@ -417,7 +458,6 @@ class WebViewTerminalPanel(private val project: Project) {
                 }
             };
             
-            // 터미널 준비 신호 전송
             setTimeout(() => {
                 sendToKotlin({ command: 'terminalReady' });
                 updateStatus('폴백 터미널 준비 완료');
@@ -426,7 +466,7 @@ class WebViewTerminalPanel(private val project: Project) {
         
         // Kotlin에서 메시지 받기
         window.handleKotlinMessage = function(data) {
-            console.log('Received from Kotlin:', data);
+            console.log('*** RECEIVED FROM KOTLIN ***:', data);
             
             if (!term) {
                 console.warn('Terminal not initialized yet');
@@ -439,9 +479,11 @@ class WebViewTerminalPanel(private val project: Project) {
                     break;
                 case 'clear':
                     term.clear();
+                    currentLine = '';
                     break;
                 case 'reset':
                     term.reset();
+                    currentLine = '';
                     break;
             }
         };
@@ -450,6 +492,7 @@ class WebViewTerminalPanel(private val project: Project) {
         function clearTerminal() {
             if (term) {
                 term.clear();
+                currentLine = '';
             }
             sendToKotlin({ command: 'clear' });
             updateStatus('터미널 클리어됨');
@@ -463,13 +506,16 @@ class WebViewTerminalPanel(private val project: Project) {
         function restartTerminal() {
             if (term) {
                 term.clear();
+                currentLine = '';
             }
             sendToKotlin({ command: 'terminalReady' });
             updateStatus('터미널 재시작 중...');
         }
         
         function testCommand(cmd) {
-            console.log('Test command:', cmd);
+            console.log('*** TEST COMMAND BUTTON ***: ' + cmd);
+            
+            // 버튼으로 실행할 때는 바로 전송
             sendToKotlin({ 
                 command: 'testCommand',
                 cmd: cmd 
@@ -479,7 +525,7 @@ class WebViewTerminalPanel(private val project: Project) {
         
         function sendToKotlin(data) {
             if (window.sendToKotlin) {
-                console.log('Sending to Kotlin:', data);
+                console.log('*** SENDING TO KOTLIN ***: ', JSON.stringify(data));
                 window.sendToKotlin(data);
             } else {
                 console.error('Kotlin bridge not available');
@@ -496,7 +542,6 @@ class WebViewTerminalPanel(private val project: Project) {
                     console.warn('FitAddon resize failed:', e);
                 }
             } else if (term) {
-                // 수동 리사이즈
                 const terminalEl = document.getElementById('terminal');
                 if (terminalEl) {
                     const rect = terminalEl.getBoundingClientRect();
@@ -512,19 +557,17 @@ class WebViewTerminalPanel(private val project: Project) {
             console.log('DOM loaded, initializing terminal...');
             updateStatus('DOM 로드 완료');
             
-            // xterm.js 라이브러리 로드 확인
             if (typeof Terminal === 'undefined') {
                 updateStatus('❌ xterm.js 라이브러리 로드 실패');
                 console.error('xterm.js library not loaded');
                 return;
             }
             
-            // xterm.js 초기화
             setTimeout(initTerminal, 500);
         });
     </script>
 </body>
 </html>
-        """.trimIndent()
+    """.trimIndent()
     }
 }

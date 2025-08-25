@@ -15,7 +15,8 @@ dependencies {
 }
 
 intellij {
-    version.set("2024.3")
+    version.set("2023.2.5")  // 현재 IntelliJ 버전에 맞춤
+    type.set("IC")           // Community Edition
     plugins.set(listOf("org.jetbrains.plugins.terminal"))
 }
 
@@ -25,9 +26,10 @@ kotlin {
 
 tasks {
     patchPluginXml {
-        sinceBuild.set("242")
-        untilBuild.set("243.*")
+        sinceBuild.set("232")      // IntelliJ 2023.2에 맞춤
+        untilBuild.set("232.*")    // 2023.2.x 버전까지 지원
     }
+
     runIde {
         jvmArgs = listOf("-Xmx2048m")
     }

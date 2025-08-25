@@ -16,44 +16,13 @@ import javax.swing.*
  */
 class TerminalToolWindowFactory : ToolWindowFactory {
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
-        val service = project.getService(TerminalProcessService::class.java)
-
-        val panel = JPanel(BorderLayout())
-
-        val inputField = JTextField()
-        inputField.addActionListener {
-            val text = inputField.text
-            service.sendInput(text)
-            inputField.text = ""
-        }
-        panel.add(inputField, BorderLayout.NORTH)
-
-        val outputArea = JTextArea(5, 80)
-        outputArea.isEditable = false
-        panel.add(JScrollPane(outputArea), BorderLayout.SOUTH)
-
-        service.setBridge(object : TerminalOutputBridge {
-            override fun pushStdout(text: String) {
-                SwingUtilities.invokeLater { outputArea.append(text) }
-            }
-            override fun pushStderr(text: String) {
-                SwingUtilities.invokeLater { outputArea.append(text) }
-            }
-            override fun onInfo(message: String) {
-                SwingUtilities.invokeLater { outputArea.append("[INFO] ${'$'}message\n") }
-            }
-            override fun onError(message: String) {
-                SwingUtilities.invokeLater { outputArea.append("[ERROR] ${'$'}message\n") }
-            }
-        })
-
-        service.initialize(System.getProperty("user.home"))
-
-        val terminalComponent = service.getTerminalComponent() ?: JLabel("Terminal unavailable")
-        panel.add(terminalComponent, BorderLayout.CENTER)
-
-        val content = ContentFactory.getInstance().createContent(panel, "WebView Terminal", false)
+        val webViewTerminalPanel = WebViewTerminalPanel(project)
+        val content = ContentFactory.getInstance().createContent(
+            webViewTerminalPanel.getComponent(),
+            "WebView Terminal",
+            false
+        )
+        
         toolWindow.contentManager.addContent(content)
-        Disposer.register(toolWindow.disposable, Disposable { service.kill() })
     }
 }

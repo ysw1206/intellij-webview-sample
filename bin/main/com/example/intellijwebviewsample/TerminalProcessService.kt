@@ -1,157 +1,141 @@
 package com.example.intellijwebviewsample
 
-import com.intellij.execution.process.ColoredProcessHandler
-import com.intellij.execution.process.ProcessEvent
-import com.intellij.execution.process.ProcessListener
-import com.intellij.execution.process.ProcessOutputTypes
-import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.components.Service.Level
 import com.intellij.openapi.diagnostic.logger
 import com.intellij.openapi.project.Project
-import com.intellij.openapi.util.Key
-import com.intellij.openapi.util.SystemInfo
-import com.pty4j.PtyProcess
-import com.intellij.terminal.JBTerminalSystemSettingsProviderBase
-import com.intellij.terminal.JBTerminalWidget
-import com.intellij.terminal.TerminalExecutionConsole
-import com.intellij.terminal.pty.PtyProcessTtyConnector
-import com.jediterm.terminal.TtyConnector
-import java.io.File
-import java.nio.charset.Charset
 import javax.swing.JComponent
 
 /**
- * Project-level service managing a real shell process and bridging it to both
- * a terminal UI widget and an external WebView via [TerminalOutputBridge].
+ * 간단한 테스트용 터미널 서비스
  */
 @Service(Level.PROJECT)
 class TerminalProcessService(private val project: Project) : com.intellij.openapi.Disposable {
     private val log = logger<TerminalProcessService>()
 
-    private var pty: PtyProcess? = null
-    private var handler: ColoredProcessHandler? = null
-    private var terminalComponent: JComponent? = null
     private var bridge: TerminalOutputBridge? = null
-    private var workingDir: File? = null
+    private var isRunning = false
 
     fun setBridge(b: TerminalOutputBridge) {
+        log.info("🔗 Bridge set: $b")
         bridge = b
     }
 
-    fun getTerminalComponent(): JComponent? = terminalComponent
+    fun getTerminalComponent(): JComponent? = null // WebView만 사용
 
     /**
-     * Initialize and attach the shell process to a terminal widget.
-     * The UI attachment prefers [TerminalExecutionConsole] when available and
-     * falls back to [JBTerminalWidget] with a [TtyConnector] otherwise.
+     * 테스트용 초기화 (PTY 없이)
      */
     fun initialize(workingDir: String? = System.getProperty("user.home")): Boolean {
-        if (project.isDisposed) return false
-        terminate()
+        log.info("🚀 Initializing test terminal service...")
+        
+        if (project.isDisposed) {
+            log.warn("❌ Project is disposed")
+            return false
+        }
 
-        val wd = File(workingDir ?: System.getProperty("user.home"))
-        val env: MutableMap<String, String> = HashMap(System.getenv())
-        val cmd: Array<String> =
-            if (SystemInfo.isWindows) arrayOf("cmd.exe")
-            else arrayOf("/bin/bash", "-l")
-
-        return try {
-            pty = PtyProcess.exec(cmd, env, wd.path)   // ← File 대신 wd.path
-            handler = ColoredProcessHandler(pty!!, "", Charset.defaultCharset())
-
-            handler!!.addProcessListener(object : ProcessListener {
-                override fun onTextAvailable(event: ProcessEvent, outputType: Key<*>) {
-                    val text = event.text
-                    if (outputType === ProcessOutputTypes.STDERR) {
-                        bridge?.pushStderr(text)
-                    } else {
-                        bridge?.pushStdout(text)
-                    }
-                }
-
-                override fun processTerminated(event: ProcessEvent) {
-                    bridge?.onInfo("Process terminated: exitCode=${'$'}{event.exitCode}")
-                }
-            })
-
-            ApplicationManager.getApplication().invokeAndWait {
-                try {
-                    // Primary path: TerminalExecutionConsole
-                    val console = TerminalExecutionConsole(project, null)
-                    console.attachToProcess(handler!!)
-                    terminalComponent = console.component
-                } catch (t: Throwable) {
-                    // Fallback: JBTerminalWidget with TTY connector
-                    val settings = object : JBTerminalSystemSettingsProviderBase() {}
-                    val widget = JBTerminalWidget(project, settings, this)
-                    val connector: TtyConnector = PtyProcessTtyConnector(pty!!, Charset.defaultCharset())
-                    widget.start(connector)
-                    terminalComponent = widget.component
-                }
-            }
-
-            handler!!.startNotify()
-            bridge?.onInfo("Terminal started in ${'$'}{wd.path}")
-            true
+        try {
+            isRunning = true
+            
+            // 테스트 메시지 전송
+            bridge?.onInfo("Test terminal service initialized")
+            bridge?.pushStdout("Welcome to test terminal!\r\n")
+            bridge?.pushStdout("Working directory: $workingDir\r\n")
+            bridge?.pushStdout("$ ")
+            
+            log.info("✅ Test terminal service initialized successfully")
+            return true
+            
         } catch (t: Throwable) {
-            log.warn("Failed to start terminal", t)
-            bridge?.onError("Failed to start terminal: ${'$'}{t.message}")
-            terminate()
-            false
+            log.error("❌ Failed to initialize test terminal", t)
+            bridge?.onError("Failed to initialize: ${t.message}")
+            return false
         }
     }
 
-    /** Send raw input to the process, appending a newline if missing. */
+    /** 테스트용 입력 처리 */
     fun sendInput(text: String) {
+        log.info("📤 Test input: ${text.replace("\r", "\\r").replace("\n", "\\n")}")
+        
+        if (!isRunning) {
+            bridge?.onError("Terminal not running")
+            return
+        }
+
         try {
-            val out = pty?.outputStream ?: return
-            val normalized = if (text.endsWith("\n") || text.endsWith("\r\n")) {
-                text
-            } else {
-                text + if (SystemInfo.isWindows) "\r\n" else "\n"
+            // 입력 에코
+            bridge?.pushStdout(text)
+            
+            // 간단한 명령어 처리
+            val command = text.trim()
+            when {
+                command == "pwd" -> {
+                    bridge?.pushStdout("\r\n")
+                    bridge?.pushStdout("${System.getProperty("user.dir")}\r\n")
+                    bridge?.pushStdout("$ ")
+                }
+                command == "whoami" -> {
+                    bridge?.pushStdout("\r\n")
+                    bridge?.pushStdout("${System.getProperty("user.name")}\r\n")
+                    bridge?.pushStdout("$ ")
+                }
+                command == "date" -> {
+                    bridge?.pushStdout("\r\n")
+                    bridge?.pushStdout("${java.util.Date()}\r\n")
+                    bridge?.pushStdout("$ ")
+                }
+                command.startsWith("echo ") -> {
+                    bridge?.pushStdout("\r\n")
+                    bridge?.pushStdout("${command.substring(5)}\r\n")
+                    bridge?.pushStdout("$ ")
+                }
+                command == "ls -la" -> {
+                    bridge?.pushStdout("\r\n")
+                    bridge?.pushStdout("total 8\r\n")
+                    bridge?.pushStdout("drwxr-xr-x  10 user  staff   320 Aug 25 10:17 .\r\n")
+                    bridge?.pushStdout("drwxr-xr-x   5 user  staff   160 Aug 25 10:00 ..\r\n")
+                    bridge?.pushStdout("-rw-r--r--   1 user  staff  1234 Aug 25 10:17 build.gradle.kts\r\n")
+                    bridge?.pushStdout("drwxr-xr-x   3 user  staff    96 Aug 25 10:00 src\r\n")
+                    bridge?.pushStdout("$ ")
+                }
+                command.isEmpty() -> {
+                    bridge?.pushStdout("\r\n$ ")
+                }
+                else -> {
+                    bridge?.pushStdout("\r\n")
+                    bridge?.pushStderr("bash: $command: command not found\r\n")
+                    bridge?.pushStdout("$ ")
+                }
             }
-            out.write(normalized.toByteArray(Charsets.UTF_8))
-            out.flush()
+            
         } catch (t: Throwable) {
-            bridge?.onError("Failed to send input: ${'$'}{t.message}")
+            log.error("❌ Failed to process input", t)
+            bridge?.onError("Failed to process input: ${t.message}")
         }
     }
 
-    fun clear() = sendInput("clear")
+    fun clear() {
+        bridge?.pushStdout("\u001b[2J\u001b[H$ ")
+    }
 
-    fun changeDirectory(path: String) = sendInput("cd \"${'$'}path\"")
+    fun changeDirectory(path: String) {
+        bridge?.pushStdout("cd: test mode - directory change simulated\r\n$ ")
+    }
 
-    /** Attempt graceful termination then destroy the process if needed. */
+    /** 테스트용 종료 */
     fun kill() {
-        try {
-            handler?.let { if (!it.isProcessTerminated) it.destroyProcess() }
-            pty?.destroy()
-        } catch (t: Throwable) {
-            log.warn("Failed to kill process", t)
-        }
-    }
-
-    private fun terminate() {
-        try {
-            handler?.destroyProcess()
-        } catch (_: Throwable) {
-        }
-        try {
-            pty?.destroy()
-        } catch (_: Throwable) {
-        }
-        handler = null
-        pty = null
-        terminalComponent = null
+        log.info("🔄 Terminating test terminal...")
+        isRunning = false
+        bridge?.onInfo("Test terminal terminated")
     }
 
     override fun dispose() {
-        terminate()
+        kill()
     }
 
     fun status(): Map<String, Any> = mapOf(
-        "running" to (pty != null),
-        "workingDir" to (workingDir?.path ?: "")
+        "running" to isRunning,
+        "processAlive" to isRunning,
+        "mode" to "test"
     )
 }
